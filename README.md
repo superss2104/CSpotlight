@@ -1,6 +1,6 @@
-# GameViz (Prototype)
+# GamePulse (Prototype)
 
-GameViz is a prototype video-highlighting pipeline for gameplay clips.
+GamePulse is a prototype video-highlighting pipeline for gameplay clips.
 It detects motion-heavy segments and automatically cuts short highlight clips using FFmpeg.
 
 ## Current Status
@@ -22,7 +22,7 @@ Planned modules (`audio`, `highlight`, `scoring`, `utils`) are scaffolded for fu
 ## Project Structure
 
 ```text
-GameViz/
+GamePulse/
 |- src/
 |  |- main.py
 |  |- video/
