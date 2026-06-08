@@ -27,7 +27,7 @@ GameViz/
 |  |- main.py
 |  |- video/
 |  |  |- motion.py
-|  |  `- videos/
+|  |  `- videos/           # legacy prototype sample location
 |  |- audio/
 |  |- highlight/
 |  |- scoring/
@@ -36,6 +36,7 @@ GameViz/
 |- tests/
 |- scripts/
 |- data/
+|  `- videos/              # preferred input location
 |- requirements.txt
 `- README.md
 ```
@@ -75,15 +76,19 @@ From the project root:
 python src/main.py
 ```
 
-This will:
-1. Read the input video at `src/video/videos/video.mp4`
-2. Detect highlight timestamps
-3. Export clips to `clips/`
+By default, this uses:
+- Input: `data/videos/video.mp4` (falls back to legacy `src/video/videos/video.mp4`)
+- Output: `clips/`
+
+You can also pass explicit paths:
+
+```powershell
+python src/main.py --input "path/to/video.mp4" --output "clips/my_run"
+```
 
 ## Notes
 
-- Input/output paths and detection parameters are currently hardcoded for prototype speed.
-- For the next iteration, a CLI/config system is recommended.
+- Detection parameters are still tuned as prototype defaults in `src/video/motion.py`.
 
 ## Troubleshooting
 
