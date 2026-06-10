@@ -7,9 +7,11 @@ The codebase is currently a small prototype centered around one processing path:
 1. Load a single input video.
 2. Scan it frame by frame.
 3. Compute a motion score for each frame transition.
-4. Aggregate motion scores into candidate highlight windows.
-5. Convert those windows into timestamps.
-6. Cut clips with FFmpeg.
+4. Extract audio loudness scores from the same video.
+5. Fuse motion and audio scores into one highlight score stream.
+6. Aggregate fused scores into candidate highlight windows.
+7. Convert those windows into timestamps.
+8. Cut clips with FFmpeg.
 
 ## 1. Entry Point
 
@@ -33,6 +35,16 @@ The application starts in [`src/main.py`](src/main.py).
 
 The default input path is resolved by `resolve_default_video()`. If `data/videos/video.mp4` exists, it is used. Otherwise the code falls back to the legacy path.
 
+### Score weight options
+
+The CLI also accepts runtime score weights:
+
+```bash
+python src/main.py --motion-weight 0.65 --audio-weight 0.35
+```
+
+If these options are omitted, the constants in [`src/highlight/pipeline.py`](src/highlight/pipeline.py) are used.
+
 ## 2. Runtime Flow
 
 The pipeline executed by `main()` is:
@@ -46,20 +58,34 @@ The pipeline executed by `main()` is:
 
 Logging is initialized only when the file is run as a script, not when imported as a module.
 
-## 3. Video Loading
+## 3. Modular Structure
 
-The first real processing step happens in [`src/video/motion.py`](src/video/motion.py).
+The pipeline is split by responsibility so future signals, such as audio analysis, can be added without changing clip generation or timestamp utilities.
+
+- [`src/highlight/pipeline.py`](src/highlight/pipeline.py): end-to-end highlight detection orchestration
+- [`src/audio/analysis.py`](src/audio/analysis.py): audio extraction and frame-aligned audio scoring
+- [`src/video/motion.py`](src/video/motion.py): visual motion score extraction
+- [`src/video/clips.py`](src/video/clips.py): FFmpeg clip extraction
+- [`src/highlight/windows.py`](src/highlight/windows.py): sliding windows, percentile filtering, merging, and duration filtering
+- [`src/highlight/timestamps.py`](src/highlight/timestamps.py): frame-range to timestamp conversion and clip overlap suppression
+- [`src/highlight/scoring.py`](src/highlight/scoring.py): score normalization and motion/audio score fusion
+
+`src/video/motion.py` keeps compatibility exports for the previous API, so existing imports of `detect_highlights()`, `cut_clips()`, and the window/timestamp helpers continue to work.
+
+## 4. Video Loading
+
+The first real processing step happens in `extract_motion_scores()` in [`src/video/motion.py`](src/video/motion.py).
 
 ### Video capture
 
-`detect_highlights(video_path)` opens the file with `cv2.VideoCapture(video_path)`.
+`extract_motion_scores(video_path)` opens the file with `cv2.VideoCapture(video_path)`.
 
 - If OpenCV cannot open the file, the function raises `RuntimeError`.
 - The frame loop then reads the video sequentially until `cap.read()` returns `False`.
 
 This implementation does not write extracted frames to disk. Frames are decoded and processed in memory only.
 
-## 4. Frame-by-Frame Motion Analysis
+## 5. Frame-by-Frame Motion Analysis
 
 For every frame read from the video, the pipeline applies the following transformations:
 
@@ -136,7 +162,7 @@ Important detail:
 - The first frame does not produce a score because there is no previous frame to compare against.
 - If the video has `N` frames, the motion list will contain roughly `N - 1` scores.
 
-## 5. FPS Handling
+## 6. FPS Handling
 
 After frame scanning finishes, the code reads the video FPS metadata:
 
@@ -152,9 +178,64 @@ This fallback matters because several later calculations depend on FPS:
 - minimum event duration
 - timestamp conversion
 
-## 6. Candidate Highlight Window Detection
+## 7. Audio Analysis
 
-Once `motion_scores` is built, the code identifies likely highlight intervals in several stages.
+After motion scores are extracted, [`src/highlight/pipeline.py`](src/highlight/pipeline.py) calls `extract_audio_scores()` from [`src/audio/analysis.py`](src/audio/analysis.py).
+
+### 7.1 FFmpeg audio decoding
+
+Audio is decoded with FFmpeg into raw mono PCM:
+
+- video is ignored with `-vn`
+- audio is converted to one channel with `-ac 1`
+- audio is resampled to `16000 Hz`
+- output format is signed 16-bit little-endian PCM
+- decoded bytes are read from stdout, not written to disk
+
+The audio module first looks for the bundled executable at `ffmpeg/bin/ffmpeg.exe`. If that file is missing, it falls back to `ffmpeg` on the system path.
+
+### 7.2 Frame-aligned audio scoring
+
+Decoded samples are split into chunks aligned to the motion score count. For each target video-frame score, the audio module computes:
+
+- RMS loudness
+- peak amplitude
+- positive loudness onset compared with the previous chunk
+
+The current audio score formula is:
+
+```python
+(0.70 * rms) + (0.20 * peak) + (0.10 * onset)
+```
+
+This keeps sustained loudness as the dominant signal while still giving some weight to spikes and sudden increases.
+
+### 7.3 Safe fallback
+
+If FFmpeg is missing, the video has no audio, audio extraction fails, or audio analysis raises an unexpected exception, the pipeline logs the issue and falls back to motion-only scoring. This preserves the existing pipeline behavior instead of failing highlight detection.
+
+## 8. Score Fusion
+
+Motion and audio scores are combined in [`src/highlight/scoring.py`](src/highlight/scoring.py).
+
+Both signals are normalized to the `0.0` to `1.0` range before fusion. The current weights are:
+
+- Motion: `0.65`
+- Audio: `0.35`
+
+The fused score formula is:
+
+```python
+combined = 0.65 * normalized_motion + 0.35 * normalized_audio
+```
+
+The output score list keeps the motion score length so downstream windowing and timestamp conversion continue to operate on the same frame-based timeline.
+
+Important practical detail: changing weights may change internal score windows without visibly changing the final output clips. After score fusion, the pipeline still applies percentile thresholding, window merging, 8-second timestamp centering, and overlap suppression. Nearby detections can therefore collapse into the same final clip even when the underlying score stream changed.
+
+## 9. Candidate Highlight Window Detection
+
+Once the final highlight score stream is built, [`src/highlight/pipeline.py`](src/highlight/pipeline.py) identifies likely highlight intervals in several stages.
 
 ### 6.1 Sliding windows
 
@@ -176,7 +257,7 @@ Each window is stored as:
 (start_frame, end_frame, mean_score)
 ```
 
-The helper also adds a final tail window if the last chunk of the score list was not covered by the regular stepping logic.
+The helper lives in [`src/highlight/windows.py`](src/highlight/windows.py) and also adds a final tail window if the last chunk of the score list was not covered by the regular stepping logic.
 
 ### 6.2 Percentile thresholding
 
@@ -207,7 +288,7 @@ Behavior:
 
 This step collapses contiguous highlight-like regions into larger spans.
 
-## 7. Duration Filtering
+## 10. Duration Filtering
 
 After merging, the code filters out short events:
 
@@ -225,9 +306,9 @@ Only intervals with duration greater than or equal to `0.8` seconds are kept.
 
 This removes brief spikes that are likely too small to be meaningful highlights.
 
-## 8. Frame Ranges to Clip Timestamps
+## 11. Frame Ranges to Clip Timestamps
 
-The remaining frame ranges are converted to time ranges by `frames_to_timestamps()`.
+The remaining frame ranges are converted to time ranges by `frames_to_timestamps()` in [`src/highlight/timestamps.py`](src/highlight/timestamps.py).
 
 ### 8.1 Center-based timing
 
@@ -272,7 +353,7 @@ Practical effect:
 
 `start_time` is clamped to `0` so the clip never begins before the video start.
 
-## 9. Clip Deduplication
+## 12. Clip Deduplication
 
 The timestamp list is passed through `suppress_overlapping_clips()`.
 
@@ -291,9 +372,9 @@ min_gap = 0.75
 
 This prevents nearly overlapping or back-to-back clips from being emitted as separate files.
 
-## 10. Clip Extraction
+## 13. Clip Extraction
 
-Final clip cutting happens in `cut_clips()`.
+Final clip cutting happens in `cut_clips()` in [`src/video/clips.py`](src/video/clips.py).
 
 ### Output directory creation
 
@@ -327,35 +408,46 @@ Output naming:
 
 Because the pipeline uses stream copy, clip extraction is fast, but cut accuracy can depend on the source file structure and keyframe alignment.
 
-## 11. Test Coverage
+## 14. Test Coverage
 
 The current tests live in [`tests/test_motion_utils.py`](tests/test_motion_utils.py).
 
-They cover three pure utility functions:
+They cover pure utility functions exposed through the compatibility layer in [`src/video/motion.py`](src/video/motion.py), plus audio and scoring helpers:
 
 1. `sliding_windows()` adds the tail window correctly.
 2. `merge_windows()` merges overlapping frame ranges.
 3. `suppress_overlapping_clips()` removes clips that are too close together.
+4. `normalize_scores()` scales and handles constant values.
+5. `combine_scores()` preserves primary score length and applies secondary signal influence.
+6. `audio_samples_to_frame_scores()` aligns audio scores to a target length and detects louder frames.
 
 ### What is not yet tested
 
-- `detect_highlights()`
+- full `detect_highlights()` integration with real videos
 - `frames_to_timestamps()`
 - `percentile_threshold()`
 - `cut_clips()`
 - CLI argument parsing in `src/main.py`
 
-## 12. Current Code Structure
+## 15. Current Code Structure
 
-The repository currently contains only one implemented processing module:
+The repository currently contains these implemented processing modules:
 
 - [`src/main.py`](src/main.py): CLI entry point
-- [`src/video/motion.py`](src/video/motion.py): motion analysis and clip cutting
+- [`src/highlight/pipeline.py`](src/highlight/pipeline.py): highlight detection orchestration
+- [`src/audio/analysis.py`](src/audio/analysis.py): audio extraction and audio score generation
+- [`src/video/motion.py`](src/video/motion.py): motion score extraction and compatibility exports
+- [`src/video/clips.py`](src/video/clips.py): clip cutting
+- [`src/highlight/windows.py`](src/highlight/windows.py): window utilities
+- [`src/highlight/timestamps.py`](src/highlight/timestamps.py): timestamp utilities
+- [`src/highlight/scoring.py`](src/highlight/scoring.py): score normalization and fusion
 - [`tests/test_motion_utils.py`](tests/test_motion_utils.py): utility tests
+- [`tests/test_audio_analysis.py`](tests/test_audio_analysis.py): audio helper tests
+- [`tests/test_scoring_utils.py`](tests/test_scoring_utils.py): score helper tests
 
-The README mentions additional directories such as `audio`, `highlight`, `scoring`, and `utils`, but those modules are not present in the current codebase snapshot.
+The `scoring` and `utils` directories are still available for future expansion.
 
-## 13. End-to-End Summary
+## 16. End-to-End Summary
 
 At a high level, the pipeline works like this:
 
@@ -364,10 +456,13 @@ At a high level, the pipeline works like this:
 3. Decode frames one by one.
 4. Convert each frame to grayscale, extract edges, blur them, and compare against the previous frame.
 5. Turn per-frame differences into a motion score.
-6. Aggregate motion scores into sliding windows.
-7. Keep only windows above the 60th percentile.
-8. Merge overlapping windows.
-9. Drop short events under 0.8 seconds.
-10. Convert surviving windows to approximately 8-second timestamps.
-11. Remove timestamps that are too close together.
-12. Use FFmpeg to cut the final clips into the output directory.
+6. Decode mono audio samples with FFmpeg.
+7. Convert audio samples into frame-aligned loudness scores.
+8. Normalize and combine motion/audio scores, or fall back to motion-only if audio is unavailable.
+9. Aggregate the final score stream into sliding windows.
+10. Keep only windows above the 60th percentile.
+11. Merge overlapping windows.
+12. Drop short events under 0.8 seconds.
+13. Convert surviving windows to approximately 8-second timestamps.
+14. Remove timestamps that are too close together.
+15. Use FFmpeg to cut the final clips into the output directory.

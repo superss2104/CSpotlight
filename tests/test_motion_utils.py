@@ -1,5 +1,6 @@
 import unittest
 
+from src.highlight.timestamps import suppress_overlapping_clips_by_score
 from src.video.motion import merge_windows, sliding_windows, suppress_overlapping_clips
 
 
@@ -23,6 +24,14 @@ class MotionUtilsTests(unittest.TestCase):
         timestamps = [(0.0, 3.0), (2.2, 4.0), (5.2, 7.0)]
         filtered = suppress_overlapping_clips(timestamps, min_gap=1.0)
         self.assertEqual(filtered, [(0.0, 3.0), (5.2, 7.0)])
+
+    def test_suppress_overlapping_clips_by_score_keeps_stronger_clip(self):
+        timestamps = [(0.0, 5.0), (4.0, 9.0), (12.0, 16.0)]
+        scores = [0.25, 0.9, 0.5]
+
+        filtered = suppress_overlapping_clips_by_score(timestamps, scores, min_gap=0.75)
+
+        self.assertEqual(filtered, [(4.0, 9.0), (12.0, 16.0)])
 
 
 if __name__ == "__main__":
