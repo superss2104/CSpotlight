@@ -30,6 +30,18 @@ def parse_args():
         default=PROJECT_ROOT / "clips",
         help="Output directory for generated clips.",
     )
+    parser.add_argument(
+        "--motion-weight",
+        type=float,
+        default=None,
+        help="Motion score weight for highlight detection.",
+    )
+    parser.add_argument(
+        "--audio-weight",
+        type=float,
+        default=None,
+        help="Audio score weight for highlight detection.",
+    )
     return parser.parse_args()
 
 
@@ -45,7 +57,11 @@ def main():
     LOGGER.info("Input video: %s", video_path)
     LOGGER.info("Output directory: %s", output_dir)
 
-    timestamps = detect_highlights(str(video_path))
+    timestamps = detect_highlights(
+        str(video_path),
+        motion_weight=args.motion_weight,
+        audio_weight=args.audio_weight,
+    )
     LOGGER.info("Detected %d clip windows", len(timestamps))
     LOGGER.debug("Timestamps: %s", timestamps)
 
