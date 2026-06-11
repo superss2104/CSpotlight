@@ -10,7 +10,7 @@ try:
         DEFAULT_MIN_CLIP_GAP_SECONDS,
         DEFAULT_START_BIAS_SECONDS,
         frames_to_timestamps,
-        suppress_overlapping_clips_by_score,
+        merge_overlapping_clips,
     )
     from .windows import filter_short_events, merge_windows, percentile_threshold, sliding_windows
 except ImportError:  # Support running src/main.py directly.
@@ -22,7 +22,7 @@ except ImportError:  # Support running src/main.py directly.
         DEFAULT_MIN_CLIP_GAP_SECONDS,
         DEFAULT_START_BIAS_SECONDS,
         frames_to_timestamps,
-        suppress_overlapping_clips_by_score,
+        merge_overlapping_clips,
     )
     from highlight.windows import filter_short_events, merge_windows, percentile_threshold, sliding_windows
     from video.motion import extract_motion_scores
@@ -57,10 +57,8 @@ def detect_highlights(video_path, motion_weight=None, audio_weight=None, killfee
         clip_len=DEFAULT_CLIP_LEN_SECONDS,
         start_bias=DEFAULT_START_BIAS_SECONDS,
     )
-    clip_scores = score_clips(timestamps, highlight_windows, fps)
-    return suppress_overlapping_clips_by_score(
+    return merge_overlapping_clips(
         timestamps,
-        clip_scores,
         min_gap=DEFAULT_MIN_CLIP_GAP_SECONDS,
     )
 

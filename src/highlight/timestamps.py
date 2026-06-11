@@ -31,20 +31,21 @@ def frames_to_timestamps(
     return timestamps
 
 
-def suppress_overlapping_clips(timestamps, min_gap=DEFAULT_MIN_CLIP_GAP_SECONDS):
+def merge_overlapping_clips(timestamps, min_gap=DEFAULT_MIN_CLIP_GAP_SECONDS):
     if not timestamps:
         return []
 
     sorted_timestamps = sorted(timestamps)
-    filtered = [sorted_timestamps[0]]
+    merged = [sorted_timestamps[0]]
 
     for start, end in sorted_timestamps[1:]:
-        _, last_end = filtered[-1]
+        last_start, last_end = merged[-1]
         if start <= last_end + min_gap:
-            continue
-        filtered.append((start, end))
+            merged[-1] = (last_start, max(last_end, end))
+        else:
+            merged.append((start, end))
 
-    return filtered
+    return merged
 
 
 def suppress_overlapping_clips_by_score(timestamps, scores, min_gap=DEFAULT_MIN_CLIP_GAP_SECONDS):

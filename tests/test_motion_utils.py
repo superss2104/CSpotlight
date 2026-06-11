@@ -1,7 +1,7 @@
 import unittest
 
-from src.highlight.timestamps import suppress_overlapping_clips_by_score
-from src.video.motion import merge_windows, sliding_windows, suppress_overlapping_clips
+from src.highlight.timestamps import merge_overlapping_clips
+from src.video.motion import merge_windows, sliding_windows
 
 
 class MotionUtilsTests(unittest.TestCase):
@@ -20,20 +20,10 @@ class MotionUtilsTests(unittest.TestCase):
         merged = merge_windows(windows, max_gap=5)
         self.assertEqual(merged, [(0, 20)])
 
-    def test_suppress_overlapping_clips_keeps_well_spaced(self):
-        timestamps = [(0.0, 3.0), (2.2, 4.0), (5.2, 7.0)]
-        filtered = suppress_overlapping_clips(timestamps, min_gap=1.0)
-        self.assertEqual(filtered, [(0.0, 3.0), (5.2, 7.0)])
-
-    def test_suppress_overlapping_clips_by_score_keeps_stronger_clip(self):
-        # Clips (0,5) and (4,9) overlap by only 1s out of 5s (20%), which is
-        # under the 50% threshold, so all three distinct clips are kept.
+    def test_merge_overlapping_clips_merges_overlaps(self):
         timestamps = [(0.0, 5.0), (4.0, 9.0), (12.0, 16.0)]
-        scores = [0.25, 0.9, 0.5]
-
-        filtered = suppress_overlapping_clips_by_score(timestamps, scores, min_gap=0.75)
-
-        self.assertEqual(filtered, [(0.0, 5.0), (4.0, 9.0), (12.0, 16.0)])
+        merged = merge_overlapping_clips(timestamps, min_gap=0.75)
+        self.assertEqual(merged, [(0.0, 9.0), (12.0, 16.0)])
 
 
 if __name__ == "__main__":

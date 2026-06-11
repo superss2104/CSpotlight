@@ -3,11 +3,11 @@ import logging
 import cv2
 
 try:
-    from ..highlight.timestamps import frames_to_timestamps, suppress_overlapping_clips
+    from ..highlight.timestamps import frames_to_timestamps
     from ..highlight.windows import merge_windows, percentile_threshold, sliding_windows
     from .clips import cut_clips
 except ImportError:  # Support running src/main.py directly.
-    from highlight.timestamps import frames_to_timestamps, suppress_overlapping_clips
+    from highlight.timestamps import frames_to_timestamps
     from highlight.windows import merge_windows, percentile_threshold, sliding_windows
     from video.clips import cut_clips
 
