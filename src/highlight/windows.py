@@ -3,7 +3,6 @@ import logging
 import numpy as np
 
 LOGGER = logging.getLogger(__name__)
-WINDOW_PERCENTILE = 60
 
 
 def sliding_windows(scores, window_size, step_size):
@@ -26,7 +25,7 @@ def sliding_windows(scores, window_size, step_size):
     return windows
 
 
-def percentile_threshold(windows, percentile=WINDOW_PERCENTILE):
+def percentile_threshold(windows, percentile=60):
     if not windows:
         return []
     scores = [w[2] for w in windows]

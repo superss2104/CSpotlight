@@ -79,7 +79,7 @@ def audio_samples_to_frame_scores(samples, fps, target_length, sample_rate=DEFAU
         rms = float(np.sqrt(np.mean(np.square(chunk))))
         peak = float(np.max(np.abs(chunk)))
         onset = max(0.0, rms - previous_rms)
-        scores.append((0.70 * rms) + (0.20 * peak) + (0.10 * onset))
+        scores.append((0.40 * rms) + (0.30 * peak) + (0.30 * onset))
         previous_rms = rms
 
     return scores

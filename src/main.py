@@ -42,6 +42,12 @@ def parse_args():
         default=None,
         help="Audio score weight for highlight detection.",
     )
+    parser.add_argument(
+        "--killfeed-weight",
+        type=float,
+        default=None,
+        help="Kill-feed score weight for highlight detection.",
+    )
     return parser.parse_args()
 
 
@@ -61,6 +67,7 @@ def main():
         str(video_path),
         motion_weight=args.motion_weight,
         audio_weight=args.audio_weight,
+        killfeed_weight=args.killfeed_weight,
     )
     LOGGER.info("Detected %d clip windows", len(timestamps))
     LOGGER.debug("Timestamps: %s", timestamps)
