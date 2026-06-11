@@ -5,13 +5,25 @@ try:
     from ..cs2.killfeed import extract_killfeed_scores
     from ..video.motion import extract_motion_scores
     from .scoring import combine_multiple_scores, combine_scores, normalize_scores
-    from .timestamps import frames_to_timestamps, suppress_overlapping_clips_by_score
+    from .timestamps import (
+        DEFAULT_CLIP_LEN_SECONDS,
+        DEFAULT_MIN_CLIP_GAP_SECONDS,
+        DEFAULT_START_BIAS_SECONDS,
+        frames_to_timestamps,
+        suppress_overlapping_clips_by_score,
+    )
     from .windows import filter_short_events, merge_windows, percentile_threshold, sliding_windows
 except ImportError:  # Support running src/main.py directly.
     from audio.analysis import extract_audio_scores
     from cs2.killfeed import extract_killfeed_scores
     from highlight.scoring import combine_multiple_scores, combine_scores, normalize_scores
-    from highlight.timestamps import frames_to_timestamps, suppress_overlapping_clips_by_score
+    from highlight.timestamps import (
+        DEFAULT_CLIP_LEN_SECONDS,
+        DEFAULT_MIN_CLIP_GAP_SECONDS,
+        DEFAULT_START_BIAS_SECONDS,
+        frames_to_timestamps,
+        suppress_overlapping_clips_by_score,
+    )
     from highlight.windows import filter_short_events, merge_windows, percentile_threshold, sliding_windows
     from video.motion import extract_motion_scores
 
@@ -19,9 +31,6 @@ LOGGER = logging.getLogger(__name__)
 WINDOW_STEP_FRAMES = 5
 WINDOW_PERCENTILE = 50
 MIN_EVENT_DURATION_SECONDS = 0.1
-DEFAULT_CLIP_LEN_SECONDS = 8.0
-DEFAULT_START_BIAS_SECONDS = -1.0
-DEFAULT_MIN_CLIP_GAP_SECONDS = 0.75
 MERGE_GAP_SECONDS = 0.6
 MOTION_SCORE_WEIGHT = 0.25
 AUDIO_SCORE_WEIGHT = 0.25
@@ -48,10 +57,10 @@ def detect_highlights(video_path, motion_weight=None, audio_weight=None, killfee
         clip_len=DEFAULT_CLIP_LEN_SECONDS,
         start_bias=DEFAULT_START_BIAS_SECONDS,
     )
-    event_scores = score_events(filtered, highlight_windows)
+    clip_scores = score_clips(timestamps, highlight_windows, fps)
     return suppress_overlapping_clips_by_score(
         timestamps,
-        event_scores,
+        clip_scores,
         min_gap=DEFAULT_MIN_CLIP_GAP_SECONDS,
     )
 
@@ -127,6 +136,21 @@ def score_events(events, scored_windows):
         ]
         event_scores.append(max(overlapping_scores, default=0.0))
     return event_scores
+
+
+def score_clips(timestamps, scored_windows, fps):
+    """Score each clip timestamp by the max highlight-window score it overlaps."""
+    clip_scores = []
+    for clip_start, clip_end in timestamps:
+        start_frame = int(clip_start * fps)
+        end_frame = int(clip_end * fps)
+        overlapping = [
+            score
+            for w_start, w_end, score in scored_windows
+            if w_start <= end_frame and start_frame <= w_end
+        ]
+        clip_scores.append(max(overlapping, default=0.0))
+    return clip_scores
 
 
 # ---------------------------------------------------------------------------

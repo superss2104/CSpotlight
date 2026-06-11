@@ -58,6 +58,10 @@ def extract_motion_scores(video_path):
                         cell_scores.append(cell.mean())
 
                 motion_scores.append(max(cell_scores))
+            else:
+                # Frame 0 has no predecessor — emit a zero so that
+                # motion_scores[i] aligns with video frame i.
+                motion_scores.append(0.0)
 
             prev_blurred = current_blurred
 

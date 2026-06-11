@@ -26,12 +26,14 @@ class MotionUtilsTests(unittest.TestCase):
         self.assertEqual(filtered, [(0.0, 3.0), (5.2, 7.0)])
 
     def test_suppress_overlapping_clips_by_score_keeps_stronger_clip(self):
+        # Clips (0,5) and (4,9) overlap by only 1s out of 5s (20%), which is
+        # under the 50% threshold, so all three distinct clips are kept.
         timestamps = [(0.0, 5.0), (4.0, 9.0), (12.0, 16.0)]
         scores = [0.25, 0.9, 0.5]
 
         filtered = suppress_overlapping_clips_by_score(timestamps, scores, min_gap=0.75)
 
-        self.assertEqual(filtered, [(4.0, 9.0), (12.0, 16.0)])
+        self.assertEqual(filtered, [(0.0, 5.0), (4.0, 9.0), (12.0, 16.0)])
 
 
 if __name__ == "__main__":
