@@ -51,16 +51,43 @@ def detect_highlights(video_path, motion_weight=None, audio_weight=None, killfee
     merged = merge_windows(highlight_windows, max_gap=merge_gap_frames)
     filtered = filter_short_events(merged, fps, MIN_EVENT_DURATION_SECONDS)
 
+    LOGGER.debug("FPS: %.2f, window_size: %d, merge_gap_frames: %d", fps, window_size, merge_gap_frames)
+    LOGGER.debug("Merged events (frame ranges): %s", filtered)
+    for i, (sf, ef) in enumerate(filtered):
+        LOGGER.debug(
+            "  Event %d: frames %d-%d  =>  %.2fs - %.2fs  (duration %.2fs)",
+            i + 1, sf, ef, sf / fps, ef / fps, (ef - sf) / fps,
+        )
+
+    # Expand events backward using raw motion scores so clips start
+    # where the action begins, not where the kill-feed appears.
+    expanded = _expand_events_with_motion(filtered, motion_scores, fps)
+    LOGGER.debug("Expanded events: %s", expanded)
+    for i, (sf, ef) in enumerate(expanded):
+        LOGGER.debug(
+            "  Expanded %d: frames %d-%d  =>  %.2fs - %.2fs  (duration %.2fs)",
+            i + 1, sf, ef, sf / fps, ef / fps, (ef - sf) / fps,
+        )
+
     timestamps = frames_to_timestamps(
-        filtered,
+        expanded,
         fps,
         clip_len=DEFAULT_CLIP_LEN_SECONDS,
         start_bias=DEFAULT_START_BIAS_SECONDS,
     )
-    return merge_overlapping_clips(
+    LOGGER.debug("Pre-merge timestamps: %s", timestamps)
+    for i, (s, e) in enumerate(timestamps):
+        LOGGER.debug("  Pre-merge clip %d: %.2fs - %.2fs  (duration %.2fs)", i + 1, s, e, e - s)
+
+    final = merge_overlapping_clips(
         timestamps,
         min_gap=DEFAULT_MIN_CLIP_GAP_SECONDS,
     )
+    LOGGER.debug("Final timestamps: %s", final)
+    for i, (s, e) in enumerate(final):
+        LOGGER.debug("  Final clip %d: %.2fs - %.2fs  (duration %.2fs)", i + 1, s, e, e - s)
+
+    return final
 
 
 def build_highlight_scores(
@@ -123,6 +150,63 @@ def build_highlight_scores(
     _log_score_ranges(motion_scores, audio_scores, killfeed_scores, combined_scores)
     return combined_scores
 
+
+MOTION_LOOKBACK_SECONDS = 8.0
+MOTION_ONSET_PADDING_SECONDS = 2.0
+MOTION_ONSET_CHUNK_SECONDS = 0.5
+MOTION_ACTIVITY_THRESHOLD = 0.15
+
+
+def _expand_events_with_motion(events, motion_scores, fps,
+                                max_lookback=MOTION_LOOKBACK_SECONDS,
+                                padding=MOTION_ONSET_PADDING_SECONDS):
+    """Expand each event window backward into preceding motion activity.
+
+    The kill-feed is a lagging indicator — it appears *after* the kill.
+    This function scans the raw motion scores backward from each event
+    to find where the action (aiming, shooting) actually started, so the
+    resulting clip captures the full play rather than starting mid-action.
+
+    The algorithm walks backward from each event start in half-second
+    chunks.  As long as a chunk's average normalised motion score exceeds
+    ``MOTION_ACTIVITY_THRESHOLD``, the event start is extended.  When a
+    chunk falls below the threshold (i.e. a calm period), expansion stops.
+    A fixed ``padding`` is then added before the detected onset.
+    """
+    if not events or not motion_scores:
+        return events
+
+    norm = normalize_scores(motion_scores)
+    max_lookback_frames = int(max_lookback * fps)
+    padding_frames = int(padding * fps)
+    chunk_frames = max(1, int(round(fps * MOTION_ONSET_CHUNK_SECONDS)))
+
+    expanded = []
+    for start_frame, end_frame in events:
+        onset = start_frame
+        pos = start_frame - chunk_frames
+
+        while pos >= max(0, start_frame - max_lookback_frames):
+            end_pos = min(pos + chunk_frames, len(norm))
+            chunk = norm[pos:end_pos]
+            if not chunk:
+                break
+            chunk_avg = sum(chunk) / len(chunk)
+            if chunk_avg > MOTION_ACTIVITY_THRESHOLD:
+                onset = pos
+                pos -= chunk_frames
+            else:
+                break
+
+        new_start = max(0, onset - padding_frames)
+        if new_start < start_frame:
+            LOGGER.debug(
+                "  Event %d-%d: motion onset at frame %d (%.2fs before event)",
+                start_frame, end_frame, onset, (start_frame - onset) / fps,
+            )
+        expanded.append((new_start, end_frame))
+
+    return expanded
 
 
 # ---------------------------------------------------------------------------
