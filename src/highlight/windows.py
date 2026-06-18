@@ -30,7 +30,7 @@ def percentile_threshold(windows, percentile=60):
         return []
     scores = [w[2] for w in windows]
     threshold = np.percentile(scores, percentile)
-    highlight_windows = [w for w in windows if w[2] >= threshold]
+    highlight_windows = [w for w in windows if w[2] > threshold]
     LOGGER.info("%d highlight windows detected", len(highlight_windows))
     return highlight_windows
 
