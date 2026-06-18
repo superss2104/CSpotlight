@@ -3,22 +3,11 @@ import logging
 import cv2
 
 try:
-    from ..highlight.timestamps import frames_to_timestamps
-    from ..highlight.windows import merge_windows, percentile_threshold, sliding_windows
     from .clips import cut_clips
 except ImportError:  # Support running src/main.py directly.
-    from highlight.timestamps import frames_to_timestamps
-    from highlight.windows import merge_windows, percentile_threshold, sliding_windows
     from video.clips import cut_clips
 
 LOGGER = logging.getLogger(__name__)
-WINDOW_STEP_FRAMES = 10
-WINDOW_PERCENTILE = 60
-MIN_EVENT_DURATION_SECONDS = 0.8
-DEFAULT_CLIP_LEN_SECONDS = 8.0
-DEFAULT_START_BIAS_SECONDS = 0.25
-DEFAULT_MIN_CLIP_GAP_SECONDS = 0.75
-MERGE_GAP_SECONDS = 0.5
 
 
 def extract_motion_scores(video_path):

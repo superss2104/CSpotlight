@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from src.highlight.pipeline import build_highlight_scores, score_events
+from src.highlight.pipeline import build_highlight_scores
 from src.highlight.scoring import combine_multiple_scores
 
 
@@ -33,13 +33,6 @@ class PipelineScoringTests(unittest.TestCase):
 
         self.assertEqual(scores, [1, 2, 3])
 
-    def test_score_events_uses_strongest_overlapping_window(self):
-        events = [(0, 20), (40, 60)]
-        scored_windows = [(0, 10, 0.25), (8, 18, 0.8), (45, 55, 0.6)]
-
-        scores = score_events(events, scored_windows)
-
-        self.assertEqual(scores, [0.8, 0.6])
 
 
 class CombineMultipleScoresTests(unittest.TestCase):

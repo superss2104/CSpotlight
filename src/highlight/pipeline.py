@@ -4,7 +4,7 @@ try:
     from ..audio.analysis import extract_audio_scores
     from ..cs2.killfeed import extract_killfeed_scores
     from ..video.motion import extract_motion_scores
-    from .scoring import combine_multiple_scores, combine_scores, normalize_scores
+    from .scoring import combine_multiple_scores, normalize_scores
     from .timestamps import (
         DEFAULT_CLIP_LEN_SECONDS,
         DEFAULT_MIN_CLIP_GAP_SECONDS,
@@ -16,7 +16,7 @@ try:
 except ImportError:  # Support running src/main.py directly.
     from audio.analysis import extract_audio_scores
     from cs2.killfeed import extract_killfeed_scores
-    from highlight.scoring import combine_multiple_scores, combine_scores, normalize_scores
+    from highlight.scoring import combine_multiple_scores, normalize_scores
     from highlight.timestamps import (
         DEFAULT_CLIP_LEN_SECONDS,
         DEFAULT_MIN_CLIP_GAP_SECONDS,
@@ -123,32 +123,6 @@ def build_highlight_scores(
     _log_score_ranges(motion_scores, audio_scores, killfeed_scores, combined_scores)
     return combined_scores
 
-
-def score_events(events, scored_windows):
-    event_scores = []
-    for event_start, event_end in events:
-        overlapping_scores = [
-            score
-            for window_start, window_end, score in scored_windows
-            if window_start <= event_end and event_start <= window_end
-        ]
-        event_scores.append(max(overlapping_scores, default=0.0))
-    return event_scores
-
-
-def score_clips(timestamps, scored_windows, fps):
-    """Score each clip timestamp by the max highlight-window score it overlaps."""
-    clip_scores = []
-    for clip_start, clip_end in timestamps:
-        start_frame = int(clip_start * fps)
-        end_frame = int(clip_end * fps)
-        overlapping = [
-            score
-            for w_start, w_end, score in scored_windows
-            if w_start <= end_frame and start_frame <= w_end
-        ]
-        clip_scores.append(max(overlapping, default=0.0))
-    return clip_scores
 
 
 # ---------------------------------------------------------------------------
