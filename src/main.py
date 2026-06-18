@@ -1,5 +1,6 @@
 import argparse
 import logging
+import winsound
 from pathlib import Path
 
 from video.motion import cut_clips, detect_highlights
@@ -17,7 +18,7 @@ def resolve_default_video() -> Path:
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="GameViz highlight extraction pipeline.")
+    parser = argparse.ArgumentParser(description="CSpotlight highlight extraction pipeline.")
     parser.add_argument(
         "--input",
         type=Path,
@@ -59,7 +60,7 @@ def main():
     if not video_path.exists():
         raise FileNotFoundError(f"Input video not found: {video_path}")
 
-    LOGGER.info("GameViz pipeline initialized")
+    LOGGER.info("CSpotlight pipeline initialized")
     LOGGER.info("Input video: %s", video_path)
     LOGGER.info("Output directory: %s", output_dir)
 
@@ -73,8 +74,10 @@ def main():
     LOGGER.debug("Timestamps: %s", timestamps)
 
     cut_clips(str(video_path), timestamps, output_dir=str(output_dir))
+    LOGGER.info("Done — %d clips saved to %s", len(timestamps), output_dir)
+    winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    logging.basicConfig(level=logging.DEBUG, format="%(levelname)s %(name)s: %(message)s")
     main()
