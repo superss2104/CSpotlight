@@ -1,7 +1,7 @@
 import unittest
 
 from src.highlight.timestamps import merge_overlapping_clips
-from src.video.motion import merge_windows, sliding_windows
+from src.highlight.windows import merge_windows, sliding_windows
 
 
 class MotionUtilsTests(unittest.TestCase):

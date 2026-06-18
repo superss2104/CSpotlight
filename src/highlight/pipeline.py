@@ -129,11 +129,9 @@ def build_highlight_scores(
     )
 
     combined_scores = combine_multiple_scores(signals, weights)
-
-    # --- Killfeed gate ---------------------------------------------------
     # Zero out any frame where the killfeed signal is absent.  This ensures
     # that high motion / audio alone (e.g. scoping in) cannot produce a
-    # highlight — a kill-feed entry must be present.
+    # highlight; a kill-feed entry must be present.
     if killfeed_scores:
         norm_kf = normalize_scores(killfeed_scores)
         gated = 0
@@ -169,9 +167,9 @@ def _expand_events_with_motion(events, motion_scores, fps,
 
     The algorithm walks backward from each event start in half-second
     chunks.  As long as a chunk's average normalised motion score exceeds
-    ``MOTION_ACTIVITY_THRESHOLD``, the event start is extended.  When a
+    MOTION_ACTIVITY_THRESHOLD, the event start is extended.  When a
     chunk falls below the threshold (i.e. a calm period), expansion stops.
-    A fixed ``padding`` is then added before the detected onset.
+    A fixed padding is then added before the detected onset.
     """
     if not events or not motion_scores:
         return events
@@ -207,11 +205,6 @@ def _expand_events_with_motion(events, motion_scores, fps,
         expanded.append((new_start, end_frame))
 
     return expanded
-
-
-# ---------------------------------------------------------------------------
-# Safe extraction helpers
-# ---------------------------------------------------------------------------
 
 def _extract_audio_safe(video_path, fps, target_length):
     try:

@@ -1,11 +1,12 @@
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import cv2
 import numpy as np
 
 LOGGER = logging.getLogger(__name__)
+
 
 
 # ---------------------------------------------------------------------------
@@ -29,7 +30,7 @@ class KillfeedConfig:
     red_hue_high: tuple = (170, 100, 100)
     red_hue_high_upper: tuple = (180, 255, 255)
 
-    # Minimum contour area as a fraction of the ROI area.
+    # Defines the minimum size of a kill-feed entry relative to the ROI.
     min_area_ratio: float = 0.005
 
     # Minimum aspect ratio (width / height) for a valid kill-feed rectangle.
@@ -53,9 +54,7 @@ class KillfeedConfig:
 DEFAULT_CONFIG = KillfeedConfig()
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
+
 
 def extract_killfeed_scores(video_path, target_length, config=None):
    
@@ -95,11 +94,11 @@ def detect_player_kills(frame, config=None):
 
     h, w = frame.shape[:2]
     roi = _crop_roi(frame, w, h, config)
-    roi_hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-    red_mask = _build_red_mask(roi_hsv, config)
+    roi_hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV) #Converts the Region Of Interest to HSV Color space
+    red_mask = _build_red_mask(roi_hsv, config) #Binary mask for red pixels
 
     outlines = find_red_outlines(red_mask, roi_hsv, config)
-    count = len(outlines)
+    count = len(outlines) #counts detected kill feed entries
 
     if count == 0:
         return 0.0
@@ -109,7 +108,7 @@ def detect_player_kills(frame, config=None):
 
 
 def _crop_roi(frame, frame_w, frame_h, config):
-    """Crop the kill-feed region of interest from the full frame."""
+    #Crop the kill-feed region of interest from the full frame
     x1 = int(frame_w * config.roi_x_start)
     y1 = int(frame_h * config.roi_y_start)
     x2 = int(frame_w * config.roi_x_end)
@@ -118,7 +117,7 @@ def _crop_roi(frame, frame_w, frame_h, config):
 
 
 def _build_red_mask(hsv_roi, config):
-    """Create a binary mask of red-hue pixels in the ROI."""
+    #Create a binary mask of red-hue pixels in the ROI
     mask_low = cv2.inRange(
         hsv_roi,
         np.array(config.red_hue_low, dtype=np.uint8),

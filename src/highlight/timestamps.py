@@ -19,12 +19,13 @@ def frames_to_timestamps(
         clip_start = max(0, event_start + start_bias)
 
         if event_duration <= clip_len:
-            # Short event — fixed length clip.
+            #Short event implies fixed length clip.
             clip_end = clip_start + clip_len
         else:
-            # Long event — single continuous clip covering the whole event.
+            #Long event implies single continuous clip covering the whole event.
             # Add a small buffer at the end.
             clip_end = event_end + 2.0
+
 
         timestamps.append((clip_start, clip_end))
 
@@ -35,13 +36,13 @@ def merge_overlapping_clips(timestamps, min_gap=DEFAULT_MIN_CLIP_GAP_SECONDS):
     if not timestamps:
         return []
 
-    sorted_timestamps = sorted(timestamps)
+    sorted_timestamps = sorted(timestamps) #to ensure they're chronologically sorted
     merged = [sorted_timestamps[0]]
 
     for start, end in sorted_timestamps[1:]:
-        last_start, last_end = merged[-1]
+        last_start, last_end = merged[-1] #previous start and end
         if start <= last_end + min_gap:
-            merged[-1] = (last_start, max(last_end, end))
+            merged[-1] = (last_start, max(last_end, end)) #if the new clip starts before the previous clip ends plus a small gap, merge them
         else:
             merged.append((start, end))
 

@@ -8,16 +8,16 @@ def normalize_scores(scores):
         return [0.0 for _ in scores]
 
     span = max_score - min_score
-    return [(score - min_score) / span for score in scores]
+    return [(score - min_score) / span for score in scores] #min-max normalization
 
 
 
 
 def combine_multiple_scores(score_lists, weights):
-    """Fuse *N* score signals with corresponding *weights*.
+    """Fuse N score signals with corresponding weights.
 
-    Each signal is independently min-max normalized to ``[0, 1]``.  The first
-    entry in *score_lists* is treated as the primary signal and determines the
+    Each signal is independently min-max normalized to [0, 1].  The first
+    entry in score_lists is treated as the primary signal and determines the
     output length.  Shorter secondary signals are zero-padded.
 
     Returns an empty list when the primary signal is empty.
@@ -34,7 +34,7 @@ def combine_multiple_scores(score_lists, weights):
     for idx in range(primary_length):
         value = 0.0
         for signal_idx, norm_signal in enumerate(normalized):
-            if idx < len(norm_signal):
+            if idx < len(norm_signal): #this is to prevent out of bound access since the primary score length determines the number of times it loops and the remianing score arrays may not be as long as the primary one. 
                 value += weights[signal_idx] * norm_signal[idx]
         combined.append(value)
 

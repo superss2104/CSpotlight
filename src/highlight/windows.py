@@ -16,11 +16,11 @@ def sliding_windows(scores, window_size, step_size):
         i += step_size
 
     if len(scores) >= window_size:
-        last_start = len(scores) - window_size
-        if not windows or windows[-1][0] != last_start:
-            window = scores[last_start:]
-            window_score = sum(window) / len(window)
-            windows.append((last_start, len(scores) - 1, window_score))
+        last_start = len(scores) - window_size #find the start of the last possible window
+        if not windows or windows[-1][0] != last_start: #this check just avoids duplicates if the loop above already added the last window
+            window = scores[last_start:] #take the last window
+            window_score = sum(window) / len(window) #calculate its score
+            windows.append((last_start, len(scores) - 1, window_score)) #add it
 
     return windows
 

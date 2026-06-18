@@ -44,12 +44,10 @@ def extract_motion_scores(video_path):
                             i * cell_h : (i + 1) * cell_h,
                             j * cell_w : (j + 1) * cell_w,
                         ]
-                        cell_scores.append(cell.mean())
+                        cell_scores.append(cell.mean()) #append the mean value of each grid
 
-                motion_scores.append(max(cell_scores))
+                motion_scores.append(max(cell_scores)) #take the maxm value among all such mean values 
             else:
-                # Frame 0 has no predecessor — emit a zero so that
-                # motion_scores[i] aligns with video frame i.
                 motion_scores.append(0.0)
 
             prev_blurred = current_blurred
