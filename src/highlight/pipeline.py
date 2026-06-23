@@ -2,8 +2,10 @@ import logging
 
 try:
     from ..audio.analysis import extract_audio_scores
-    from ..cs2.killfeed import extract_killfeed_scores
+    from ..cs2.killfeed import extract_killfeed_data, extract_killfeed_scores
+    from ..cs2.multikill import build_multikill_mask
     from ..video.motion import extract_motion_scores
+    from .categories import CategorizedClip, ClipCategory, categorize_clips, filter_clips_by_category
     from .scoring import combine_multiple_scores, normalize_scores
     from .timestamps import (
         DEFAULT_CLIP_LEN_SECONDS,
@@ -15,7 +17,9 @@ try:
     from .windows import filter_short_events, merge_windows, percentile_threshold, sliding_windows
 except ImportError:  # Support running src/main.py directly.
     from audio.analysis import extract_audio_scores
-    from cs2.killfeed import extract_killfeed_scores
+    from cs2.killfeed import extract_killfeed_data, extract_killfeed_scores
+    from cs2.multikill import build_multikill_mask
+    from highlight.categories import CategorizedClip, ClipCategory, categorize_clips, filter_clips_by_category
     from highlight.scoring import combine_multiple_scores, normalize_scores
     from highlight.timestamps import (
         DEFAULT_CLIP_LEN_SECONDS,
@@ -37,9 +41,27 @@ AUDIO_SCORE_WEIGHT = 0.25
 KILLFEED_SCORE_WEIGHT = 0.5
 
 
-def detect_highlights(video_path, motion_weight=None, audio_weight=None, killfeed_weight=None):
+def detect_highlights(video_path, motion_weight=None, audio_weight=None,
+                      killfeed_weight=None, enabled_categories=None):
+    """Run the full highlight detection pipeline.
+
+    Parameters
+    ----------
+    video_path : str
+        Path to the input video.
+    motion_weight, audio_weight, killfeed_weight : float or None
+        Score fusion weights.  ``None`` uses module-level defaults.
+    enabled_categories : set[ClipCategory] or None
+        Which clip categories to keep.  ``None`` keeps all categories.
+
+    Returns
+    -------
+    list[CategorizedClip]
+        Detected clips with category metadata.  Each item supports tuple
+        unpacking ``(start, end) = clip`` for backwards compatibility.
+    """
     motion_scores, fps = extract_motion_scores(video_path)
-    scores = build_highlight_scores(
+    scores, kill_counts = build_highlight_scores(
         video_path, motion_scores, fps,
         motion_weight, audio_weight, killfeed_weight,
     )
@@ -87,13 +109,40 @@ def detect_highlights(video_path, motion_weight=None, audio_weight=None, killfee
     for i, (s, e) in enumerate(final):
         LOGGER.debug("  Final clip %d: %.2fs - %.2fs  (duration %.2fs)", i + 1, s, e, e - s)
 
-    return final
+    # --- Categorize and filter clips ---
+    multikill_mask = build_multikill_mask(kill_counts, fps)
+    categorized = categorize_clips(final, multikill_mask, fps)
+
+    for i, clip in enumerate(categorized):
+        LOGGER.info(
+            "  Clip %d: %.2fs - %.2fs  [%s]",
+            i + 1, clip.start, clip.end, clip.category.name,
+        )
+
+    result = filter_clips_by_category(categorized, enabled_categories)
+    if enabled_categories is not None:
+        LOGGER.info(
+            "Category filter: %d / %d clips kept (enabled: %s)",
+            len(result), len(categorized),
+            ", ".join(c.name for c in enabled_categories),
+        )
+
+    return result
 
 
 def build_highlight_scores(
     video_path, motion_scores, fps,
     motion_weight=None, audio_weight=None, killfeed_weight=None,
 ):
+    """Fuse motion, audio, and killfeed signals into a single score stream.
+
+    Returns
+    -------
+    tuple[list[float], list[int]]
+        ``(combined_scores, kill_counts)`` where *kill_counts* is the
+        per-frame raw kill count from the killfeed analysis (empty list
+        if killfeed extraction failed).
+    """
     if motion_weight is None:
         motion_weight = MOTION_SCORE_WEIGHT
     if audio_weight is None:
@@ -102,7 +151,7 @@ def build_highlight_scores(
         killfeed_weight = KILLFEED_SCORE_WEIGHT
 
     audio_scores = _extract_audio_safe(video_path, fps, len(motion_scores))
-    killfeed_scores = _extract_killfeed_safe(video_path, len(motion_scores))
+    killfeed_scores, kill_counts = _extract_killfeed_safe(video_path, len(motion_scores))
 
     signals = [motion_scores]
     weights = [motion_weight]
@@ -120,7 +169,7 @@ def build_highlight_scores(
 
     if len(signals) == 1:
         LOGGER.info("Using motion-only highlight scores")
-        return motion_scores
+        return motion_scores, kill_counts
 
     LOGGER.info(
         "Combining %s scores with weights %s",
@@ -146,7 +195,7 @@ def build_highlight_scores(
         )
 
     _log_score_ranges(motion_scores, audio_scores, killfeed_scores, combined_scores)
-    return combined_scores
+    return combined_scores, kill_counts
 
 
 MOTION_LOOKBACK_SECONDS = 4
@@ -218,15 +267,16 @@ def _extract_audio_safe(video_path, fps, target_length):
 
 
 def _extract_killfeed_safe(video_path, target_length):
+    """Return ``(scores, kill_counts)`` with safe fallback."""
     try:
-        scores = extract_killfeed_scores(video_path, target_length)
-        return scores
+        result = extract_killfeed_data(video_path, target_length)
+        return result.scores, result.kill_counts
     except Exception:
         LOGGER.exception(
             "Unexpected kill-feed analysis failure for %s. Falling back without kill-feed.",
             video_path,
         )
-        return []
+        return [], []
 
 
 def _log_score_ranges(motion_scores, audio_scores, killfeed_scores, combined_scores):

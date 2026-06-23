@@ -63,7 +63,8 @@ def extract_motion_scores(video_path):
         cv2.destroyAllWindows()
 
 
-def detect_highlights(video_path, motion_weight=None, audio_weight=None, killfeed_weight=None):
+def detect_highlights(video_path, motion_weight=None, audio_weight=None,
+                      killfeed_weight=None, enabled_categories=None):
     try:
         from ..highlight.pipeline import detect_highlights as pipeline_detect_highlights
     except ImportError:  # Support running src/main.py directly.
@@ -74,4 +75,5 @@ def detect_highlights(video_path, motion_weight=None, audio_weight=None, killfee
         motion_weight=motion_weight,
         audio_weight=audio_weight,
         killfeed_weight=killfeed_weight,
+        enabled_categories=enabled_categories,
     )
