@@ -127,6 +127,29 @@ class HollowRectangleTests(unittest.TestCase):
         accepted = is_hollow_rectangle(contours[0], mask, min_area=50, config=KillfeedConfig())
         self.assertFalse(accepted)
 
+    def test_death_fill_with_text_gaps_rejected(self):
+        """Simulates a CS2 death entry: red fill with gaps from text/icons.
+
+        The overall fill ratio is ~30-40% (text creates holes), which would
+        have slipped past the old 0.4 threshold.  The new inner-fill check
+        catches it because the interior (away from edges) still has
+        substantial red fill.
+        """
+        mask = np.zeros((200, 600), dtype=np.uint8)
+        # Start with a filled red rectangle (death entry background).
+        cv2.rectangle(mask, (10, 50), (580, 90), 255, -1)
+        # Cut out horizontal stripes to simulate text/weapon icons on top.
+        # This brings the overall fill ratio down but the interior still
+        # has significant red.
+        mask[55:60, 50:200] = 0    # text region 1
+        mask[65:70, 100:350] = 0   # text region 2
+        mask[75:80, 200:500] = 0   # weapon icon region
+        mask[58:72, 280:320] = 0   # another gap
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        self.assertTrue(len(contours) > 0)
+        accepted = is_hollow_rectangle(contours[0], mask, min_area=50, config=KillfeedConfig())
+        self.assertFalse(accepted, "Death fill with text gaps should be rejected by inner-fill check")
+
     def test_square_shape_rejected(self):
         mask = np.zeros((200, 200), dtype=np.uint8)
         cv2.rectangle(mask, (10, 10), (100, 100), 255, 2)  # square, aspect ~1:1
