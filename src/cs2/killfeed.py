@@ -1,6 +1,7 @@
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import List, Tuple
 
 import cv2
 import numpy as np
@@ -36,9 +37,19 @@ class KillfeedConfig:
     # Minimum aspect ratio (width / height) for a valid kill-feed rectangle.
     min_aspect_ratio: float = 3.0
 
-    # Maximum fraction of pixels inside the bounding rect that are red.  A
-    # true outline has a low interior fill; solid red UI elements are rejected.
-    max_interior_fill: float = 0.4
+    # Maximum fraction of pixels inside the *full* bounding rect that are
+    # red.  Lowered from 0.4 to 0.30 to better reject semi-transparent
+    # death fills whose text/icon gaps reduce their apparent fill ratio.
+    max_interior_fill: float = 0.30
+
+    # Maximum fill ratio of the *inner region* (excluding the border zone).
+    # A true outline has virtually zero coloured pixels in its interior.
+    # Filled death entries still have substantial red even with text gaps.
+    max_inner_fill: float = 0.10
+
+    # Fraction of the shorter rectangle dimension used as the border zone
+    # width when computing the inner-fill ratio.  Minimum 4 px.
+    border_zone_ratio: float = 0.15
 
     # Polygon approximation tolerance (fraction of perimeter).
     approx_epsilon: float = 0.04
@@ -54,12 +65,38 @@ class KillfeedConfig:
 DEFAULT_CONFIG = KillfeedConfig()
 
 
+@dataclass
+class KillfeedResult:
+    """Container for killfeed analysis output.
+
+    Attributes:
+        scores:      Per-frame float scores (same as extract_killfeed_scores output).
+        kill_counts: Per-frame raw kill counts (number of red outlines detected).
+    """
+    scores: List[float] = field(default_factory=list)
+    kill_counts: List[int] = field(default_factory=list)
+
+
 
 
 def extract_killfeed_scores(video_path, target_length, config=None):
-   
+    """Return per-frame killfeed scores aligned to *target_length*.
+
+    This is the original public API and remains unchanged.
+    """
+    result = extract_killfeed_data(video_path, target_length, config)
+    return result.scores
+
+
+def extract_killfeed_data(video_path, target_length, config=None):
+    """Return a :class:`KillfeedResult` with both scores and raw kill counts.
+
+    The *scores* list is identical to what :func:`extract_killfeed_scores`
+    returns.  The *kill_counts* list contains the integer number of detected
+    red outlines per frame, aligned to *target_length*.
+    """
     if target_length <= 0:
-        return []
+        return KillfeedResult()
 
     if config is None:
         config = DEFAULT_CONFIG
@@ -67,28 +104,45 @@ def extract_killfeed_scores(video_path, target_length, config=None):
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         LOGGER.warning("Kill-feed detection: failed to open video %s", video_path)
-        return []
+        return KillfeedResult()
 
     try:
         raw_scores = []
+        raw_counts = []
         while True:
             ret, frame = cap.read()
             if not ret:
                 break
-            raw_scores.append(detect_player_kills(frame, config))
+            score, count = detect_player_kills_detailed(frame, config)
+            raw_scores.append(score)
+            raw_counts.append(count)
     finally:
         cap.release()
 
     if not raw_scores:
-        return []
+        return KillfeedResult()
 
-    aligned = _align_scores(raw_scores, target_length)
-    LOGGER.info("Extracted %d kill-feed scores (max %.2f)", len(aligned), max(aligned))
-    return aligned
+    aligned_scores = _align_scores(raw_scores, target_length)
+    aligned_counts = _align_counts(raw_counts, target_length)
+    LOGGER.info("Extracted %d kill-feed scores (max %.2f)", len(aligned_scores), max(aligned_scores))
+    return KillfeedResult(scores=aligned_scores, kill_counts=aligned_counts)
 
 
 def detect_player_kills(frame, config=None):
-   
+    """Return the killfeed score for a single frame (float).
+
+    This is the original public API and remains unchanged.
+    """
+    score, _count = detect_player_kills_detailed(frame, config)
+    return score
+
+
+def detect_player_kills_detailed(frame, config=None):
+    """Return ``(score, kill_count)`` for a single frame.
+
+    *score* is identical to :func:`detect_player_kills`.  *kill_count* is the
+    raw number of detected red-outlined killfeed entries.
+    """
     if config is None:
         config = DEFAULT_CONFIG
 
@@ -101,9 +155,10 @@ def detect_player_kills(frame, config=None):
     count = len(outlines) #counts detected kill feed entries
 
     if count == 0:
-        return 0.0
+        return 0.0, 0
     # First kill = 1.0, each additional adds 0.5, capped.
-    return min(1.0 + 0.5 * (count - 1), config.max_score)
+    score = min(1.0 + 0.5 * (count - 1), config.max_score)
+    return score, count
 
 
 
@@ -148,7 +203,16 @@ def find_red_outlines(red_mask, roi_hsv, config):
 
 
 def is_hollow_rectangle(contour, red_mask, min_area, config):
-   
+    """Check whether *contour* is a hollow rectangle (kill outline).
+
+    Applies two fill checks:
+    1. **Overall fill** — fraction of coloured pixels in the full bounding
+       rect.  Must be <= ``max_interior_fill``.
+    2. **Inner fill** — fraction of coloured pixels in the interior region
+       (excluding the border zone).  Must be <= ``max_inner_fill``.
+       This distinguishes true outlines from *filled* death entries whose
+       overlaid text/icons create gaps that lower the overall fill ratio.
+    """
     area = cv2.contourArea(contour)
     if area < min_area:
         return False
@@ -169,8 +233,7 @@ def is_hollow_rectangle(contour, red_mask, min_area, config):
     if aspect < config.min_aspect_ratio:
         return False
 
-    # Hollow check: the interior of the bounding rect should have a low
-    # fraction of red pixels compared to the rect area.
+    # --- Overall fill check ---
     interior = red_mask[y:y + h, x:x + w]
     if interior.size == 0:
         return False
@@ -178,6 +241,23 @@ def is_hollow_rectangle(contour, red_mask, min_area, config):
     fill_ratio = np.count_nonzero(interior) / interior.size
     if fill_ratio > config.max_interior_fill:
         return False
+
+    # --- Inner fill check ---
+    # Sample only the interior region (away from edges).  A true outline
+    # has virtually zero coloured pixels here; a filled death entry still
+    # has substantial red even with text/icon gaps.
+    border = max(4, int(min(w, h) * config.border_zone_ratio))
+    inner_y1 = y + border
+    inner_y2 = y + h - border
+    inner_x1 = x + border
+    inner_x2 = x + w - border
+
+    if inner_y2 > inner_y1 and inner_x2 > inner_x1:
+        inner = red_mask[inner_y1:inner_y2, inner_x1:inner_x2]
+        if inner.size > 0:
+            inner_fill = np.count_nonzero(inner) / inner.size
+            if inner_fill > config.max_inner_fill:
+                return False
 
     return True
 
@@ -195,4 +275,20 @@ def _align_scores(raw_scores, target_length):
         src_idx = int(round(i * (n - 1) / max(1, target_length - 1)))
         src_idx = min(src_idx, n - 1)
         aligned.append(raw_scores[src_idx])
+    return aligned
+
+
+def _align_counts(raw_counts, target_length):
+    """Align integer kill counts to *target_length* (nearest-neighbour)."""
+    n = len(raw_counts)
+    if n == target_length:
+        return raw_counts
+    if n == 0:
+        return [0] * target_length
+
+    aligned = []
+    for i in range(target_length):
+        src_idx = int(round(i * (n - 1) / max(1, target_length - 1)))
+        src_idx = min(src_idx, n - 1)
+        aligned.append(raw_counts[src_idx])
     return aligned
